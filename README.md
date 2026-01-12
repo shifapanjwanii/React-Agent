@@ -166,6 +166,27 @@ Handles communication with the OpenRouter API:
    python main.py
    ```
 
+### Run the Web Chat UI (local)
+
+```bash
+uvicorn web_app:app --host 0.0.0.0 --port 8000 --reload
+```
+
+Then open http://localhost:8000 for a chat-style UI (user bubbles on the right, agent on the left).
+
+### Deploy the Web UI on Modal
+
+1. Install the Modal CLI and log in: https://modal.com/docs/guide/cli_install
+2. Make sure your `.env` or Modal secret contains `OPENROUTER_API_KEY` (and optionally `OPENROUTER_MODEL`).
+   ```bash
+   modal secret create smart-utility-secrets OPENROUTER_API_KEY=$OPENROUTER_API_KEY
+   ```
+3. Deploy:
+   ```bash
+   modal deploy web_app.py --env secret=smart-utility-secrets
+   ```
+4. Modal will print a hosted URL; open it to use the chat UI.
+
 ## 💡 Usage Examples
 
 ### Example 1: Multi-step Calculation with Weather

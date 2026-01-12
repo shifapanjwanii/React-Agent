@@ -4,24 +4,34 @@ Serves a lightweight chat UI and exposes an API endpoint for responses.
 """
 
 import os
+import sys
 from functools import lru_cache
-from typing import Literal
 
-from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 import modal
 
-from agent.agent import ReActAgent
-from agent.openrouter import OpenRouterClient
+# Load local environment variables for dev runs (only if dotenv is available).
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
-# Load local environment variables for dev runs.
-load_dotenv()
 
-
-def _build_agent() -> ReActAgent:
+def _build_agent():
     """Create a ReActAgent instance with environment-driven config."""
+    # Try importing from agent module (local dev), fall back to sys.path (Modal)
+    try:
+        from agent.agent import ReActAgent
+        from agent.openrouter import OpenRouterClient
+    except ImportError:
+        import sys
+        sys.path.insert(0, "/workspace")
+        from agent.agent import ReActAgent
+        from agent.openrouter import OpenRouterClient
+    
     api_key = os.environ.get("OPENROUTER_API_KEY")
     if not api_key:
         raise RuntimeError("OPENROUTER_API_KEY is not set. Add it to your env or Modal secret.")
@@ -34,7 +44,7 @@ def _build_agent() -> ReActAgent:
 
 
 @lru_cache(maxsize=1)
-def get_agent() -> ReActAgent:
+def get_agent():
     """Return a cached agent to avoid re-initializing per request."""
     return _build_agent()
 
@@ -60,20 +70,32 @@ def chat(request: ChatRequest) -> ChatResponse:
     agent = get_agent()
     try:
         reply = agent.run(request.prompt.strip())
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return ChatResponse(reply=reply)
 
 
 # Modal setup for deployment.
-image = modal.Image.debian_slim().pip_install_from_requirements("requirements.txt")
-stub = modal.App("smart-utility-web", image=image)
+stub = modal.App("smart-utility-web")
+
+image = (
+    modal.Image.debian_slim()
+    .pip_install(
+        "requests>=2.31.0",
+        "python-dotenv>=1.0.0",
+        "fastapi>=0.110.0",
+        "uvicorn>=0.23.0",
+        "pydantic>=2.7.0"
+    )
+)
 
 
-@stub.function()
+@stub.function(image=image, secrets=[modal.Secret.from_name("smart-utility-secrets")], allow_concurrent_inputs=10)
 @modal.asgi_app()
-def fastapi_app():  # type: ignore[empty-body]
+def fastapi_app():
     """Entrypoint for Modal; returns the FastAPI app."""
+    import sys
+    sys.path.insert(0, "/workspace")
     return app
 
 
